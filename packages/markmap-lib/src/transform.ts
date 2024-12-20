@@ -71,15 +71,25 @@ export class Transformer implements ITransformer {
     const context: ITransformContext = {
       content,
       features: {},
-      contentLineOffset: 0,
       parserOptions: fallbackParserOptions,
     };
     this.hooks.beforeParse.call(this.md, context);
-    const html = this.md.render(context.content, {});
+    let { content: rawContent } = context;
+    if (context.frontmatterInfo)
+      rawContent = rawContent.slice(context.frontmatterInfo.offset);
+    const html = this.md.render(rawContent, {});
     this.hooks.afterParse.call(this.md, context);
     const root = cleanNode(buildTree(html, context.parserOptions));
     root.content ||= `${context.frontmatter?.title || ''}`;
     return { ...context, root };
+  }
+
+  resolveJS(item: JSItem) {
+    return patchJSItem(this.urlBuilder, item);
+  }
+
+  resolveCSS(item: CSSItem) {
+    return patchCSSItem(this.urlBuilder, item);
   }
 
   /**
@@ -96,9 +106,16 @@ export class Transformer implements ITransformer {
       }
     }
     return {
-      styles: styles.map((item) => patchCSSItem(this.urlBuilder, item)),
-      scripts: scripts.map((item) => patchJSItem(this.urlBuilder, item)),
+      styles: styles.map((item) => this.resolveCSS(item)),
+      scripts: scripts.map((item) => this.resolveJS(item)),
     };
+  }
+
+  getPreloadScripts(): IAssets {
+    const scripts = this.plugins
+      .flatMap((plugin) => plugin.config?.preloadScripts || [])
+      .map((item) => this.resolveJS(item));
+    return { scripts };
   }
 
   /**
